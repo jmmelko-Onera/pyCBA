@@ -1,74 +1,72 @@
 # pyCBA — Camera Beam Analyzer (Python)
 
-Port Python de **CameraBeamAnalyzer** (MATLAB) : mesure du diamètre et du profil d'un faisceau laser
-à partir d'images de caméra (ASCII/CSV exportés par Spiricon, WinCamD, BeamGage, Pyrocam, Photon…),
-selon les algorithmes ISO 11146 du programme d'origine.
+Python GUI to measure the diameter and profile of a laser beam from camera images (ASCII/CSV exported by Spiricon, WinCamD, BeamGage, Pyrocam, Photon…), using the ISO 11146 algorithms.
 
 * Python ≥ 3.10, Windows / Linux / macOS
-* Interface : PyQt5 (défaut d'Anaconda) ou PySide6, via `pyqtgraph`
-* Pas d'installation de pyCBA : on lance le script depuis le dossier décompressé
+* User interface: PyQt5 (Anaconda default) or PySide6, via `pyqtgraph`
+* No installation of pyCBA required: run the script from the unzipped folder
 
-## 1. Prérequis
+## 1. Requirements
 
-Avec **Anaconda** (Spyder inclus), tout est déjà là sauf éventuellement `pyqtgraph` :
+With **Anaconda** (Spyder included), everything is already there except possibly `pyqtgraph`:
 
 ```
 conda install -c conda-forge pyqtgraph
 ```
 
-Paquets utilisés : `numpy`, `scipy`, `Pillow`, `pyqtgraph` (≥ 0.13), `PyQt5` ou `PySide6`.
-Sans Anaconda : `pip install numpy scipy pillow pyqtgraph PyQt5`.
+Packages used: `numpy`, `scipy`, `Pillow`, `pyqtgraph` (≥ 0.13), `PyQt5` or `PySide6`.
+Without Anaconda: `pip install numpy scipy pillow pyqtgraph PyQt5`.
 
-## 2. Lancer le programme
+## 2. Running the program
 
-Décompressez le dossier `pyCBA` où vous voulez (ex. `C:\Users\vous\pyCBA`), puis au choix :
+Unzip the `pyCBA` folder wherever you like (e.g. `C:\Users\you\pyCBA`), then choose one of:
 
-| Méthode | Comment |
+| Method | How |
 |---|---|
-| **Double-clic** (Windows) | `run_cba.bat` — cherche Anaconda, l'active, lance le programme. On peut aussi glisser une image sur le `.bat`. |
-| **Spyder** | ouvrir `run_cba.py` et « Run file » (F5). La fenêtre reste ouverte, la console Spyder reste utilisable. |
-| **Terminal** | `python run_cba.py [fichier_image]` |
+| **Double-click** (Windows) | `run_cba.bat` — finds Anaconda, activates it and starts the program. You can also drag an image onto the `.bat` file. |
+| **Spyder** | open `run_cba.py` and "Run file" (F5). The window stays open and the Spyder console remains usable. |
+| **Terminal** | `python run_cba.py [image_file]` |
 
-Si `run_cba.bat` ne trouve pas Anaconda, ouvrez-le dans un éditeur et renseignez la variable `ACT`
-(chemin de `Scripts\activate.bat`).
+If `run_cba.bat` cannot find Anaconda, open it in a text editor and set the `ACT` variable
+(path to `Scripts\activate.bat`).
 
-## 3. Utilisation (résumé)
+## 3. Usage (summary)
 
-1. **Open** : choisir une image ; les autres fichiers du dossier de même extension sont parcourables avec les boutons `<--` / `-->`.
-   Le format (séparateur, décimale, en-tête, cellules vides d'un export ROI) est détecté automatiquement.
-2. **Fond / filtre / énergie / dé-scintillement / échelle Z** : mêmes réglages que dans la version MATLAB, plus un bouton **Auto**
-   à côté du champ Bkg (médiane d'un cadre de 5 % le long des bords de l'image, écrite dans le champ) ;
-   le zoom est conservé lors d'un simple rafraîchissement et remis à zéro au chargement d'une image.
-3. **Ouverture (ROI)** : rectangle, carré, ellipse, cercle ou polygone, avec poignées ; ouverture automatique ;
-   **Energy / Area / Power** ; **ISO Beam size** (diamètres ISO sur les axes horizontal et vertical) et **ISO Beam size angle**
-   (grand et petit diamètre ISO 11146 sur les axes principaux du faisceau, angle du grand axe — positif dans le sens
-   anti-horaire à l'écran — et ellipticité ; toujours la définition 4σ, et l'ellipse inclinée est dessinée).
-4. **Réticule** (`+`, `X`, `~`, `O`) : définit les lignes de profil ; **Profiles** ouvre la fenêtre des profils
-   (données + ajustements) et enregistre les fichiers de profil à côté de l'image.
-5. **Pixel killer** : bouton à bascule, un clic sur un pixel l'exclut du calcul.
-6. **Help** : rappel des fonctions dans le programme.
+1. **Open**: choose an image; the other files in the same folder with the same extension can be browsed with the `<--` / `-->` buttons.
+   The format (separator, decimal mark, header, empty cells from an ROI export) is detected automatically.
+2. **Background / filter / energy / de-flicker / Z scale**: same settings as in the MATLAB version, plus an **Auto** button
+   next to the Bkg field (median of a frame covering 5 % along the image edges, written into the field);
+   the zoom is kept on a simple refresh and reset when a new image is loaded.
+3. **Aperture (ROI)**: rectangle, square, ellipse, circle or polygon, with handles; automatic aperture;
+   **Energy / Area / Power**; **ISO Beam size** (ISO diameters along the horizontal and vertical axes) and **ISO Beam size angle**
+   (ISO 11146 major and minor diameters along the beam's principal axes, angle of the major axis — positive counter-clockwise
+   on screen — and ellipticity; always the 4σ definition, and the tilted ellipse is drawn).
+4. **Crosshair** (`+`, `X`, `~`, `O`): defines the profile lines; **Profiles** opens the profile window
+   (data + fits) and saves the profile files next to the image.
+5. **Pixel killer**: toggle button; clicking a pixel excludes it from the calculation.
+6. **Help**: in-program reminder of the functions.
 
-## 4. Convertisseurs (hors interface)
+## 4. Converters (outside the GUI)
 
-`examples/convert_files.py` (à lancer sous Spyder, paramètres en tête de fichier) convertit en texte lisible par pyCBA :
+`examples/convert_files.py` (to be run in Spyder, parameters at the top of the file) converts to text readable by pyCBA:
 
-* Spiricon **Pyrocam III `.RAW`**, Photon **`.PRW`**, et **captures d'écran** (TIFF/PNG) du logiciel caméra.
+* Spiricon **Pyrocam III `.RAW`**, Photon **`.PRW`**, and **screenshots** (TIFF/PNG) from the camera software.
 
-Les fonctions sont dans `pycba.io.converters`. Choix par défaut : facteur « Color Zoom » du RAW lu dans l'en-tête du fichier
-(4 sinon), PRW en comptes bruts (la mise à l'échelle 0–255 reste une option), réticule des captures détecté par ses couleurs
-hors palette (voir `matlab/CONVERTERS_FIXES.txt`).
+The functions are in `pycba.io.converters`. Default choices: the RAW "Color Zoom" factor is read from the file header
+(4 otherwise), PRW in raw counts (scaling to 0–255 remains an option), the crosshair in screenshots is detected by its
+out-of-palette colours (see `matlab/CONVERTERS_FIXES.txt`).
 
-## 5. Contenu du dossier
+## 5. Folder contents
 
 ```
-run_cba.bat / run_cba.py      lanceurs
-src/pycba/io/                 lecture des fichiers (ASCII, palette, convertisseurs)
-src/pycba/core/               calculs (métriques ISO, profils, ROI, mesures) — sans interface
-src/pycba/gui/                interface Qt/pyqtgraph (les callbacks ne font que de la gestion d'IHM)
-src/pycba/resources/          palette Spiricon_128bit_RIFF.pal
-SampleBeams/                  vos images d'exemple (le bouton Open s'y ouvre par défaut)
+run_cba.bat / run_cba.py      launchers
+src/pycba/io/                 file reading (ASCII, palette, converters)
+src/pycba/core/               computations (ISO metrics, profiles, ROI, measurements) — no GUI
+src/pycba/gui/                Qt/pyqtgraph interface (callbacks only handle UI logic)
+src/pycba/resources/          Spiricon_128bit_RIFF.pal palette
+SampleBeams/                  your sample images (the Open button starts there by default)
 examples/                     convert_files.py, check_beam_peak.py
-tests/                        tests automatiques + fichiers d'exemple (tests/data)
-matlab/                       correctifs à reporter dans le code MATLAB (voir §7)
-docs/FUNCTION_MAP.md          correspondance fonction MATLAB → fonction Python
+tests/                        automated tests + sample files (tests/data)
+matlab/                       fixes to carry over into the MATLAB code (see §7)
+docs/FUNCTION_MAP.md          MATLAB function → Python function mapping
 ```
