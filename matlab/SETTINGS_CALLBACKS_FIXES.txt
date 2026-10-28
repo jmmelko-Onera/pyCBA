@@ -1,0 +1,91 @@
+SETTINGS CALLBACKS (bkg, filter, pixel size, energy, flicker, normalisation, image menu)
+Python equivalents: pycba/gui/session.py (Session.set_bkg, set_filter, set_pixelsize, set_energy, set_deflicker,
+choose_norm, switch_image). Every change below is applied in Python; the MATLAB replacements are given so that
+both versions behave the same. str2num is replaced by str2double (see 0).
+
+0) str2num EVALUATES the text as MATLAB code (typing  system('...')  in a field would run it) and returns [] or an
+   array for odd text. Use  v = str2double(get(h,'String'))  : NaN for anything that is not a number.
+   (pyCBA's parser also accepts simple expressions such as 2*5 or 1/4, but never executes anything.)
+
+1) New helper, next to update_image:
+
+    function updateImageAndDependents(imageNum)
+        % A reference image (B, C) changed: the normalised main image depends on it
+        update_image(imageNum);
+        if imageNum ~= 1 && get(hNormMenu,'Value') ~= 1
+            update_image(1);
+        end
+    end
+
+2) bkg_Callback: invalid text gave bkg = [] and the next subtraction failed; a reference's background left the
+   normalised image A stale.
+
+    function bkg_Callback(~,~)
+        bkgval=str2double(get(hui_bkg,'String'));
+        if ~isscalar(bkgval) || ~isfinite(bkgval)
+            bkgval=0; set(hui_bkg,'String','0');
+        end
+        imageNum=get(hImageNumMenu,'Value');
+        IMAGES{imageNum}.bkg=bkgval;
+        updateImageAndDependents(imageNum);
+        plot_image(imageNum,true);
+    end
+
+3) filter_Callback: only the first value is meaningful; same result as before for valid text.
+
+        order=str2double(get(hFilter,'String'));
+        if ~isscalar(order) || ~isfinite(order); order=1; end
+        FILTERS.filtorder=round(min(max(order,1),100));
+        set(hFilter,'String',num2str(FILTERS.filtorder));
+        imageNum=get(hImageNumMenu,'Value');
+        for i=length(IMAGES):-1:1; update_image(i); end
+        plot_image(imageNum,true);
+
+4) pixelSize_Callback and energy_Callback change FILTERS.energy, which scales EVERY image, but only the current image
+   was recomputed: the references (and the normalised image) kept the old scaling. Replace the line
+        update_image(imageNum);
+   in both callbacks by
+        for i=length(IMAGES):-1:1; update_image(i); end
+
+5) energy_Callback: an image with no signal in the aperture gives energy = 0, then FILTERS.energy = Inf/NaN and
+   every image is ruined. Before  FILTERS.energy=FILTERS.energy*userenergy/energy;  add
+        if energy==0 || ~isfinite(energy)
+            updatemsgtxt('!!No energy in the aperture: ignoring.');
+            return
+        end
+
+6) hDeflickerCheck_Callback: with no image loaded, computeFlicker([]) fails. Guard the two flicker lines:
+        if ~isempty(IMAGES{imageNum}.raw)  ...computeFlicker / zeros...  end
+   and replace  update_image(imageNum);  by  updateImageAndDependents(imageNum);
+
+7) NormMenu_Callback: (a) choosing "(none)" printed "!!No reference image(s): ignoring." when no reference was
+   loaded; (b) after that message only the menu switched to image A, the path box, background, scale and flicker
+   check kept the values of the previous image. Replacement of the first two branches:
+
+        method = get(hNormMenu,'Value');
+        if method ~= 1 && isempty(IMAGES{2}.filt) && isempty(IMAGES{3}.filt)
+            updatemsgtxt('!!No reference image(s): ignoring.');
+            update_image(1);
+            set(hImageNumMenu,'Value',1);
+            ImageNumMenu_Callback([],[]);       % refreshes everything for image A
+        elseif isempty(IMAGES{1}.filt)
+            if method ~= 1; updatemsgtxt('!!No main image: ignoring.'); end
+            return
+        else
+            ... (unchanged: the existing  if method == 3 || method == 4 ... else ... end  block, which
+                 must not call  method = get(hNormMenu,'Value')  again)
+        end
+
+8) ImageNumMenu_Callback: the left/right buttons kept the state of the previous image although every image has its
+   own file list. Add at the end:
+        if length(IMAGES{imageNum}.filesNames) > 1
+            set([hLeftFile hRightFile],'Enable','On');
+        else
+            set([hLeftFile hRightFile],'Enable','Off');
+        end
+   (initialise IMAGES{n}.filesNames={} for the three images, so that the field exists before any file is loaded).
+
+9) DiamMenu_Callback does nothing: the method is read from the menu when a size is computed (same in Python).
+
+10) Not changed, FYI: the tooltip of the flicker check says it "substracts the background": that is what the
+    edge-mean offset does (the baseline of the edges is removed), it is not the Bkg field.

@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pycba"
+version = "1.0.0"
+description = "Camera Beam Analyzer - ISO beam diameter metrology (Python port)"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.23", "scipy>=1.9", "pyqtgraph>=0.13", "Pillow>=9", "PyQt5>=5.15"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+pyside6 = ["PySide6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pycba = ["resources/*.pal"]
+
+[project.gui-scripts]
+cba = "pycba.gui.main_window:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

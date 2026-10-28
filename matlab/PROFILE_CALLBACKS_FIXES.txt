@@ -1,0 +1,47 @@
+Changes to make in MAIN_CameraBeamAnalyzer.m (profile callbacks)
+================================================================
+
+1) Profile45Button_Callback - the min/max messages printed the values of the OTHER profile.
+   Replace
+        updatemsgtxt(sprintf('- min/max=[%.3g,%.3g]',Pmin,Pmax));
+        updatemsgtxt(sprintf('+ min/max=[%.3g,%.3g]',Mmin,Mmax));
+   by
+        updatemsgtxt(sprintf('- min/max=[%.3g,%.3g]',Mmin,Mmax));
+        updatemsgtxt(sprintf('+ min/max=[%.3g,%.3g]',Pmin,Pmax));
+
+2) ProfileL1L2Button_Callback - same crossing of the labels. Replace
+        updatemsgtxt(sprintf('L1 min/max=[%.3g,%.3g]',L2min,L2max));
+        updatemsgtxt(sprintf('L2 min/max=[%.3g,%.3g]',L1min,L1max));
+   by
+        updatemsgtxt(sprintf('L1 min/max=[%.3g,%.3g]',L1min,L1max));
+        updatemsgtxt(sprintf('L2 min/max=[%.3g,%.3g]',L2min,L2max));
+
+3) ProfileL1L2Button_Callback - profile extraction. The image is no longer rotated: the profiles
+   are sampled directly along L1 and L2 (lineProfile.m, to put in Utils/). The rotated 1-pixel
+   masks were deformed and had holes; the sampling error on the beam widths is < 0.25 % at any
+   angle, L1 and L2 need not be perpendicular, and the position axis is now a real distance
+   (norm(posL1) was the 2-norm of the 2x2 position MATRIX, which scaled the fitted diameters wrongly).
+   Replace everything from
+        L1Mask = createMask(CROSS.handlerHPL1,hImage); L2Mask = createMask(CROSS.handlerVML2,hImage);
+   down to and including
+        L2Vector=(1:length(L2Profile))*L2/length(L2Profile);
+   by
+        posL1 = getPosition(CROSS.handlerHPL1); posL2 = getPosition(CROSS.handlerVML2);
+        if ~isempty(ROI.type)
+            roimask = createMask(hROI,hImage);
+            croppedimg=rfilt.*roimask;
+        else
+            roimask = [];
+            croppedimg=rfilt;
+        end
+        linenum=round(Ypos/pixelsize); colnum=round(Xpos/pixelsize);
+        angle = atan2(posL1(2,2)-posL1(1,2),posL1(2,1)-posL1(1,1))*180/pi;
+        [L1Vector,L1Profile,L1Mask] = lineProfile(croppedimg,roimask,posL1,pixelsize);
+        [L2Vector,L2Profile,L2Mask] = lineProfile(croppedimg,roimask,posL2,pixelsize);
+   (the profiles are now COLUMN vectors, like the H/V and 45 degree ones. With the former row
+   vectors, tmp=[L1Vector L1Profile] saved ONE line of 2n numbers instead of two columns.)
+
+4) Replace the nested function ComputeProfilesMinMax by the one in ComputeProfilesMinMax_fixed.m
+   (it also contains the helper removeProfileOutliers).
+
+5) Replace Utils/smoothOutliers.m by the version in this folder (NaN alignment fix).

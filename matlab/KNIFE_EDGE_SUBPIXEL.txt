@@ -1,0 +1,47 @@
+COUTEAU (KNIFE-EDGE) SOUS-PIXEL - 22/10/2026
+
+ComputeDKnifeEdge renvoyait la position du CENTRE du premier pixel dont l'energie cumulee depasse le seuil : resolution
+d'un pixel, soit jusqu'a +-1.5 pixel d'erreur sur un diametre de 20-30 pixels (verifie sur une gaussienne de 29 pixels
+de diametre decalee par fractions de pixel : l'ancien resultat saute de 2 pixels, le nouveau reste a 0.05 pres).
+
+Nouveau calcul : interpolation lineaire de l'energie cumulee a l'interieur du pixel ou le seuil est franchi.
+Le pixel i occupe [i-0.5, i+0.5]*pixelsize et "vsum" est l'energie jusqu'a son bord droit :
+        position = (i - 0.5 + (seuil - vsum_avant)/(vsum_apres - vsum_avant)) * pixelsize
+La recherche des 84 % reprend AU MEME PIXEL que celle des 16 % (un seul pixel peut contenir les deux seuils) : l'ancienne
+boucle "for j=i+1:ncols" devient "for j=i0:ncols" avec vsum restaure.
+
+1) Utils/knifeEdgeAxis.m : fichier fourni (matlab/knifeEdgeAxis.m). Fichier autonome (et non fonction imbriquee) pour
+   eviter qu'une fonction imbriquee partage par megarde des variables (i, j, cum...) avec le MAIN.
+2) Remplacer ComputeDKnifeEdge DANS MAIN_CameraBeamAnalyzer.m par la version ci-dessous. La COPIE de cette fonction dans
+   tests/matlab_reference/export_core_reference.m est deja mise a jour (dans pyCBA, fichier fourni) ; il faut ensuite
+   REGENERER les .mat de reference : le test test_core "dknife" compare au bit pres.
+
+    function [X0, Y0, DiamH, DiamV] = ComputeDKnifeEdge(image, Xcentroid, Ycentroid)
+        global FILTERS
+        % Beam diameters, knife-edge method (sub-pixel, 22/10/2026)
+        pixelsize=FILTERS.pixelsize;
+        X0=Xcentroid;
+        Y0=Ycentroid;
+        KNIFE_LOW  = 0.5*erfc( 1/sqrt(2)); % 0.158655 (-1 sigma of a Gaussian)
+        KNIFE_HIGH = 0.5*erfc(-1/sqrt(2)); % 0.841345 (+1 sigma)
+        energy = sum(sum(image,'omitnan'),'omitnan')*(pixelsize.^2);
+        [xlow, xhigh] = knifeEdgeAxis(sum(image,1,'omitnan')*(pixelsize.^2), energy, KNIFE_LOW, KNIFE_HIGH, pixelsize);
+        [ylow, yhigh] = knifeEdgeAxis(sum(image,2,'omitnan')'*(pixelsize.^2), energy, KNIFE_LOW, KNIFE_HIGH, pixelsize);
+        DiamH=2*(xhigh-xlow);
+        DiamV=2*(yhigh-ylow);
+    end
+
+La fraction est bornee a [0,1] : pour une image d'energie totale NEGATIVE (image invalide, seuils negatifs), l'interpolation
+extrapolait n'importe comment (diametres de 1e10) ; bornee, le resultat reste dans le pixel. Sans effet sur un faisceau normal.
+
+Les tests comparent STRICTEMENT (rtol=1e-12) le sous-pixel de Python aux .mat : si les diametres du couteau du .mat sont des
+nombres entiers de pixels, le test le dit (le .mat vient de l'ancien ComputeDKnifeEdge ; verifier que Utils/knifeEdgeAxis.m
+est sur le chemin et que export_core_reference.m appelle bien knifeEdgeAxis). Utiliser la version AVEC bornage de la
+fraction : sans lui, l'image de test a energie negative (sample_beam_tab) ne coincide pas.
+
+Verification : le code MATLAB de knifeEdgeAxis a ete transcrit ligne a ligne en Python et compare a la version Python sur
+300 images aleatoires (tailles, pixelsize et bruit varies) : ecart maximal 0.
+
+Python : compute_d_knife_edge(..., subpixel=True) par defaut ; subpixel=False redonne l'ancien resultat entier.
+Note : meme avec le sous-pixel, les valeurs ne coincident avec 4 sigma que pour une gaussienne ; pour tout autre profil
+la methode mesure la distance entre les points a 15.87 % et 84.13 % de l'energie cumulee, comme avant.

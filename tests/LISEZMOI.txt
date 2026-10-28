@@ -1,0 +1,5 @@
+Dossier des images d'exemple (issues du code MATLAB).
+
+- Le bouton Open de pyCBA s'ouvre ici tant qu'aucune image n'est chargee.
+- Les tests automatiques ne lisent PAS ce dossier : ils utilisent uniquement tests/data.
+- Les fichiers de profil enregistres par le bouton Profiles sont ecrits a cote de l'image.

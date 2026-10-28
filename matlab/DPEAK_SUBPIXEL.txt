@@ -1,0 +1,20 @@
+1/e2 DIAMETER (ComputeDpeak) -- SUB-PIXEL, 23/10/2026
+=====================================================
+Problem: ComputeDpeak took, on the whole row (column) through the peak, the pixel closest to the level max/e^2 and doubled
+its distance to the peak. Consequences: (1) D is an EVEN integer number of pixels (error +-1 pixel, rms 0.57 pixel: 6 % for
+D = 10 pixels, 3 % for 20, 1 % for 50); (2) with noise, a pixel far from the beam (or on the wrong side) can be closer to
+the level than the beam edge: errors of 4-9 % with 1-3 % noise, and sometimes absurd; (3) D = 2 x ONE side, wrong for an
+asymmetric beam.
+
+Fix: 1) put widthAtLevel.m (pyCBA/matlab/widthAtLevel.m) in Utils/.
+     2) in MAIN_CameraBeamAnalyzer.m, replace the body of ComputeDpeak after "level=themax/exp(2);" by:
+
+        level=themax/exp(2);
+        DiamH = widthAtLevel(image(rowmax,:), colmax, level)*pixelsize;
+        DiamV = widthAtLevel(image(:,colmax), rowmax, level)*pixelsize;
+
+   (the lines [~,col1e2]=min(...), [~,row1e2]=min(...) and DiamH=2*abs(...) / DiamV=2*abs(...) disappear;
+    X0, Y0, maxincol, maxpos, themax, colmax, rowmax are unchanged.)
+
+Check: a Gaussian of 1/e2 radius w gives D = 2 w to 0.1 pixel (was +-1 pixel).
+export_core_reference.m already contains this version of ComputeDpeak; it needs widthAtLevel.m on the path.

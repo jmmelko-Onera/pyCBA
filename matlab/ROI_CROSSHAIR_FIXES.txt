@@ -1,0 +1,103 @@
+ROI / crosshair fixes (MATLAB).  Python equivalents: pycba/core/roi.py (tests/test_roi.py).
+In all constraint functions, "gca" must be "hAxes": gca is whatever axes was last used (profiles window...).
+
+1) AutoApertureButton_Callback -- replace the body of the for loop after the switch by the lines below.
+   Bugs: (a) second setPosition used the OLD ROIpos, cancelling the width change made just before;
+   (b) bounds: min([...,ROIX0]) should be 2*min(distance to left edge, to right edge) and the image does not start
+       at 0 (limits are [0.5 dim+0.5]*pixelsize), and the right/bottom edges were ignored;
+   (c) convergence tested on the OLD width only, and divides by 0 if DiamH=0;
+   (d) "Could not converge" shown when the last iteration had converged (i==imax after a break);
+   (e) polygon ROI: ROIpos(3), ROIpos(4) do not exist -> crash.
+   Before the loop add:   if ~isempty(ROI.type) && strcmp(ROI.type,'polygon'); updatemsgtxt('Auto aperture: not available for polygons.'); return; end
+                          converged = false;   xl = get(hAxes,'XLim'); yl = get(hAxes,'YLim');
+   Replace everything from "ROIpos = getPosition(hROI);" to the end of the loop by:
+
+            ROIpos = getPosition(hROI);
+            ROIX0 = ROIpos(1) + ROIpos(3)/2; ROIY0 = ROIpos(2) + ROIpos(4)/2;
+            maxW = 2*min(ROIX0-xl(1), xl(2)-ROIX0); maxH = 2*min(ROIY0-yl(1), yl(2)-ROIY0);
+            minSize = 4*FILTERS.pixelsize;   % 23/10/2026: never below 4 pixels (a ~0 diameter, e.g. 4sigma on a noisy / negative image after a
+                                             % background subtraction, collapsed the aperture to a line that cannot be grabbed)
+            newW = max(min([2*DiamH, maxW]), minSize);   % min ignores NaN
+            newH = max(min([2*DiamV, maxH]), minSize);
+            if any(strcmp(ROI.type,{'square','circle'})); newW = min(newW,newH); newH = newW; end
+            if abs(ROIpos(3)-newW) <= tol*newW && abs(ROIpos(4)-newH) <= tol*newH
+                converged = true; break
+            end
+            setPosition(hROI, [ROIX0-newW/2, ROIY0-newH/2, newW, newH]);   % ONE call, both sizes
+        end
+        if ~converged; updatemsgtxt(sprintf('/!\\Could not converge after %d iterations',imax)); end
+        ROIpos = getPosition(hROI);
+        if min(ROIpos(3:4)) <= 4*FILTERS.pixelsize*(1+1e-9)
+            updatemsgtxt('/!\\Auto-aperture stopped at its minimum size (4 pixels): check the background subtraction.');
+        end
+
+2) createDefaultROI -- width = max(2,abs(ncols*pixelsize-Xpeak)/2) only looks at the right/bottom edge (a peak near
+   the right edge gave 2, one near the left edge a huge aperture) and 2 is in absolute units. Replace the two lines by:
+        [nrows, ncols] = size(image); ps = FILTERS.pixelsize;
+        width  = max(2*ps, min(Xpeak-0.5*ps, (ncols+0.5)*ps-Xpeak)/2);
+        height = max(2*ps, min(Ypeak-0.5*ps, (nrows+0.5)*ps-Ypeak)/2);
+   (identical for a centred peak)
+
+3) createROI -- an unknown type left the PREVIOUS hROI in place, which then got a second callback and the new type.
+   Add  hROI = [];  right after  type = lower(type);   and in the outer "if" keep as is.
+   Also AutoApertureButton / createDefaultROI should set the ROI menu to the created type, not only to 4.
+
+4) crossDiagPConstraintFcn / crossDiagMConstraintFcn / default 'X' and '~' positions assume xlim(1)=ylim(1)=0.
+   Replace the two returnedpos lines by:
+   P:  c = min(max(pos(1,1)+pos(1,2), xlim(1)+ylim(1)), xlim(2)+ylim(2));
+       xa = max(xlim(1), c-ylim(2)); xb = min(xlim(2), c-ylim(1));
+       returnedpos = [xa c-xa; xb c-xb];
+   M:  d = min(max(pos(1,1)-pos(1,2), xlim(1)-ylim(2)), xlim(2)-ylim(1));
+       xa = max(xlim(1), ylim(1)+d); xb = min(xlim(2), ylim(2)+d);
+       returnedpos = [xa xa-d; xb xb-d];
+   and in createCrosshair 'X' / '~' compute posHPL1 / posVML2 with these same formulas (c = midX+midY, d = midX-midY).
+
+5) crossLCalculateConstrain -- division by zero when an arm is horizontal or vertical (x==x0 or y==y0): NaN everywhere,
+   min() returns index 1 and imline gets NaN. Replace the projection loop by a ray/box intersection:
+        for i = 1:2
+            dx = newpos(i,1)-x0; dy = newpos(i,2)-y0;
+            if dx>0; tx=(xlim(2)-x0)/dx; elseif dx<0; tx=(xlim(1)-x0)/dx; else; tx=Inf; end
+            if dy>0; ty=(ylim(2)-y0)/dy; elseif dy<0; ty=(ylim(1)-y0)/dy; else; ty=Inf; end
+            t = min(tx,ty);
+            if isfinite(t); ptp(i,:) = [x0+t*dx, y0+t*dy]; end
+        end
+   Same division problem in crossL1ConstraintFcn / crossL2ConstraintFcn (yM2-y0, xM2-x0 ... = 0). Also: they call each
+   other through setConstrainedPosition / setPosition (L1 -> L2 -> L1 ...) and L1 does not project the perpendicular line on
+   the box while L2 does. The robust design (used in Python) keeps only (centre, angle): line 1 = angle, line 2 = angle+90 degrees,
+   both cut by the box, and moving the centre translates both.
+
+6) createCrosshair '~': if posHPL1 and posVML2 are given but posL1L2 is empty, impoint(gca,[]) starts an interactive
+   placement. Default centre = intersection of the two lines:  if isempty(posL1L2); posL1L2 = [(xp1+xp2)/2,(yp1+yp2)/2]; end
+   (compute it outside the "if isempty(posHPL1)||isempty(posVML2)" block).
+   Cases 'O' and re-creation never delete the previous CROSS handles: delete them first (delete(CROSS.handlerHPL1) ... if isvalid).
+
+7) ROImenu_Callback uses IMAGES{1}.filt even when image B or C is selected: use IMAGES{get(hImageNumMenu,'Value')}.filt.
+8) AutoApertureButton_Callback: the mask comes from createMask(hROI,hImage), i.e. from the image OBJECT hImage, while the
+   product is made with rfilt = IMAGES{imageNum}.filt (imageNum = value of hImageNumMenu):
+        mask = createMask(hROI,hImage);
+        croppedimg = rfilt.*mask;
+   If hImage is not the image of imageNum (hImage is a variable shared by all images and only refreshed by plot_image;
+   for instance the menu was changed to B, which has another size than A, before the display was refreshed, or a reload
+   failed halfway), mask and rfilt have different sizes and ".*" errors ("Matrix dimensions must agree"), or worse, if the
+   sizes happen to be equal, the mask is placed with the XData/YData of another image.
+   Fix: do not depend on hImage; build the mask from the ROI vertices and the pixel centres of rfilt, which is also the
+   convention used everywhere else (pixel i centred at i*pixelsize) and the one used in Python (roi_mask).
+   Replace the two lines above (inside the for loop) by:
+
+        mask = roiMaskFromROI(hROI, size(rfilt), FILTERS.pixelsize);
+        croppedimg = rfilt.*mask;
+
+   and add this function next to AutoApertureButton_Callback (inside the main function, like the others):
+
+    function mask = roiMaskFromROI(h, imgSize, ps)
+        % Mask of the pixels whose centre (i*ps, j*ps) is inside the ROI h (imrect, imellipse, impoly), edges included
+        v = getVertices(h);                      % polygon (N x 2); for imellipse, the polygon that approximates it
+        [X,Y] = meshgrid((1:imgSize(2))*ps, (1:imgSize(1))*ps);
+        mask = inpolygon(X, Y, v(:,1), v(:,2));
+    end
+
+   Notes: - getVertices exists for imrect, imellipse and impoly (Image Processing Toolbox), so this works for all 5 ROI types.
+          - the same function can replace every other createMask(hROI,hImage) of the program (profiles, energy, area, power...).
+            When you send me those functions I will check them for the same problem.
+          - if you prefer to keep createMask, at least test before using it:
+                if ~isequal(size(mask),size(rfilt)); updatemsgtxt('/!\ROI mask and image sizes differ -> skipping.'); return; end

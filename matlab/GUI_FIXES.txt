@@ -1,0 +1,39 @@
+GUI fixes (MATLAB), group "pixel killer / reload with background"
+
+A) pixelKiller -- clicking outside the image makes linenum/colnum 0 or > size, so deadmask(linenum,colnum) errors.
+   Also, gca is not necessarily the main axes (use hAxes). Replace the function by:
+
+    function pixelKiller(~, ~)
+        % Adds clicked pixels to the deadmask
+        imageNum=get(hImageNumMenu,'Value');
+        pixelsize=FILTERS.pixelsize;
+        deadmask=IMAGES{imageNum}.deadmask;
+        mousepos=get(hAxes,'CurrentPoint');
+        linenum=round(mousepos(1,2)/pixelsize);
+        colnum=round(mousepos(1,1)/pixelsize);
+        if linenum<1 || colnum<1 || linenum>size(deadmask,1) || colnum>size(deadmask,2)
+            return      % click outside the image: nothing to kill
+        end
+        if deadmask(linenum,colnum)==1
+            deadmask(linenum,colnum)=0;
+            updatemsgtxt(sprintf('Pix (%d,%d) killed.',linenum,colnum));
+        else
+            deadmask(linenum,colnum)=1;
+            updatemsgtxt(sprintf('Pix (%d,%d) restored.',linenum,colnum));
+        end
+        IMAGES{imageNum}.deadmask=deadmask;
+        update_image(imageNum);
+        plot_image(imageNum,true);
+    end
+
+B) load_imagefile -- the background of the slot is kept when a new image is loaded; if bkg is an image (matrix)
+   of another size, update_image fails at  rfilt = rfilt - IMAGES{imageNum}.bkg.
+   In load_imagefile, just before  IMAGES{imageNum}.raw=r;  insert:
+
+                if numel(IMAGES{imageNum}.bkg) > 1 && ~isequal(size(IMAGES{imageNum}.bkg),size(r))
+                    IMAGES{imageNum}.bkg = 0;
+                    set(hBkg,'String','0');      % <- the handle of the background edit box in your code
+                    updatemsgtxt('Background reset (image size changed).');
+                end
+
+   (Python does the same: the background becomes 0 and the message "Background reset (image size changed)." appears.)

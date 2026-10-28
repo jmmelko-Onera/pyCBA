@@ -1,0 +1,32 @@
+ASCII ROI exports (sample_roi.csv): rows outside the camera ROI are lines of empty cells (";;;;").
+They are IMAGE rows (zeros), not headers.
+
+1) analyzeASCII.m -- keep the deblanked lines read in the detection loop, then give them back after it.
+   Before the loop add:      headerLines = {};
+   In the loop, right after  strline=deblank(strline); % Strips trailing spaces   add:
+                             headerLines{numlines} = strline;
+   After the loop ("end" that closes the while, before "% Counts the number of real lines") add:
+
+    % ROI exports: lines made only of numcols empty cells right before the first data line are image rows
+    if ~isempty(coldel) && ~any(strcmp(coldel,{sprintf('\t'),' '})) && numheaders>0 && lineskip==1
+        ndel = numcols - double(~strcmp(lastcoldel,coldel));
+        while numheaders>0
+            row = headerLines{numheaders};
+            if ~isempty(row) && all(row==coldel) && length(row)==ndel
+                numheaders = numheaders-1;
+            else
+                break
+            end
+        end
+    end
+
+   (the file position is not touched: the counting loop that follows keeps reading from the first data line.)
+
+2) readAsciiFromFile.m (.spc / blank-delimited files) -- recognise it by the block starting with
+       cameraImageROI = false;
+   Replace that line by:
+       cameraImageROI = false;
+       if ~strcmp(coldel,' ')   % the ROI sanitization only makes sense for ';' ',' or tab files
+   and put one extra "end" after the matching "end" of the  for k=1:min(2,numlines)  loop.
+   Reason: with coldel=' ' the pattern ['^' coldel '|' coldel coldel] matches any double blank and wrongly
+   flags space-aligned files as ROI exports.

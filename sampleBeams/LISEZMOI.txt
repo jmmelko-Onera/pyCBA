@@ -1,0 +1,6 @@
+Dossier des images d'exemple (issues du code MATLAB).
+
+- Le bouton Open de pyCBA s'ouvre ici tant qu'aucune image n'est chargee.
+- Les tests (tests/test_io.py) utilisent ce dossier s'il contient sample_beam_SP928.csv ;
+  sinon ils utilisent tests/data (fichiers deja fournis).
+- Les fichiers de profil enregistres par le bouton Profiles sont ecrits a cote de l'image.

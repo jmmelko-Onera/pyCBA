@@ -1,0 +1,56 @@
+FILE CALLBACKS (path_Callback, BrowseButton_Callback, LeftButton_Callback, RightButton_Callback)
+
+1) BrowseButton_Callback: remove the line  "profile on"  (a debugging leftover: it switches the MATLAB
+   profiler on at every click and slows the program down).
+
+2) BrowseButton_Callback: if no image has a file path yet, "curFilepath" is never assigned and
+   fileparts(curFilepath) fails ("Unrecognized function or variable"). Initialise it before the loop:
+        curFilepath = '';
+   Also, fileparts already returns the FOLDER, so
+        curFileDir = replace(curFilepath, [curFileName fileExt], '');
+   does nothing useful; simply use  curFileDir = curFilepath;
+
+3) Left/Right/path callbacks build paths with  [dir '\' name]  : Windows only. Use fullfile(dir, name).
+
+4) path_Callback: curFileIndex=find(strcmp(...)) is EMPTY when the file name is not in the list (typed name that
+   does not exist, different case...). Then Left/Right fail (empty-1). Add
+        if isempty(curFileIndex); curFileIndex = 1; end
+   (pyCBA does this.)
+
+5) listFiles.m. Python's list_files() is NOT a literal port any more; it changes four behaviours (agreed):
+   - natural order (img2 before img10; MATLAB: Windows' dir order = img10 before img2);
+   - an EMPTY text lists nothing (MATLAB: every file of the current folder, then the first one was opened);
+   - a text that is not an existing file or folder lists nothing (MATLAB: read as an extension filter on the
+     current folder: '.txt' listed the .txt files there);
+   - a file WITHOUT extension lists only the files without extension (MATLAB: no filter, every file).
+   MATLAB replacement of the second half of listFiles (from "if exist(path,'dir')" to the end of the filtering):
+
+        if ~isempty(strtrim(path)) && exist(path,'dir')==7
+            PathName=path; ext=[];
+        elseif ~isempty(strtrim(path)) && exist(path,'file')==2
+            [PathName, ~, ext]= fileparts(path);
+            if isempty(PathName) PathName='.'; end
+        else
+            FilesNames={};
+            if nargout>=3; varargout{1}={}; end
+            return;
+        end
+        files=dir(PathName);
+        files([files.isdir])=[];
+        if ~isempty(ext) || exist(path,'dir')~=7     % existing file: same extension (maybe none)
+            keep = false(size(files));
+            for i=1:length(files)
+                [~,~,exti]= fileparts(files(i).name);
+                keep(i) = strcmpi(ext,exti);
+            end
+            files = files(keep);
+        end
+        names = {files.name};
+        % natural order: numbers are padded before sorting (UNTESTED: I cannot run MATLAB here)
+        keys = cellfun(@(n) regexprep(lower(n),'\d+','${sprintf(''%012d'',str2double($0))}'), names, 'UniformOutput', false);
+        [~,order] = sort(keys);
+        FilesNames = names(order);
+        FilesNames = FilesNames(:);   % column cell array, like the original code (cell(size(files)))
+
+   (the "[files.isdir]" removal replaces the backwards deletion loop; keep either).
+   Left/Right/path callbacks and IMAGES{n}.filesNames are unchanged.

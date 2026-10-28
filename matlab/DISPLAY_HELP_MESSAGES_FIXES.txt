@@ -1,0 +1,29 @@
+Display scale, help text, open messages (MATLAB).  Found while testing pyCBA.
+
+1) plot_image -- linear scale covering NEGATIVE values (reproduced).
+   When Znormalize is true and the peak of the filtered image is <= 0 (e.g. "Bkg substract" larger than the whole signal, or
+   after the energy / pixel size fields set Znormalize), Zmax = ComputeBeamPeak(rfilt,'max') is negative. In linear scale
+   scalemax = Zmax+1e-9 < 0 and sort([scalemin scalemax]) gives an axis going from Zmax to 0: negative values.
+   Only the log branch protected against it (and only for Zmax==0). Replace
+            if FILTERS.log==true % Log display
+                if Zmax==0; Zmax=1e-9; end
+   by (just after the if/else that sets Zmax, before "if FILTERS.log==true"):
+            if ~(Zmax > 0); Zmax = 1e-9; end      % no positive signal (also catches NaN)
+            if FILTERS.log==true % Log display
+   and delete the old line "if Zmax==0; Zmax=1e-9; end".
+   (With a fixed Z scale in the menu the bug does not occur; Python behaves the same after the fix.)
+   If the display still shows negative values after choosing a fixed scale in the menu, tell me the exact sequence of actions.
+
+2) HelpButton_Callback -- typo: "carriage retun" -> "carriage return". Also "U/hh²" reads "U/h²" (pixel size h, energy U per area h²).
+
+3) load_imagefile -- messages (optional, done in Python): the file is read so fast that two messages are useless. Replace
+            updatemsgtxt(sprintf('Opening image %d/%d...',curFileIndex,NumFiles));
+   by nothing, and
+            updatemsgtxt('Done.');
+   by
+            if NumFiles<=1; updatemsgtxt('Image opened.'); else; updatemsgtxt(sprintf('Image opened (%d/%d).',curFileIndex,NumFiles)); end
+
+4) plot_image, when the aperture no longer fits (after a pixel size or image change) MATLAB re-creates a default aperture of the
+   same type: Python does the same (message "!!Aperture outside the image: default aperture created."). Note that createDefaultROI
+   with an EMPTY ROI.type creates an ellipse and says "No aperture defined: creating default"; this is only reached if
+   isROIWithin returned false for a non-empty position, so it is not a bug.

@@ -1,0 +1,53 @@
+BOUTON "Auto" DU FOND (nouveau, 22/10/2026) - a reporter dans MAIN_CameraBeamAnalyzer.m
+
+Decisions : un bouton "Auto" a droite du champ "Bkg substract" ; la valeur estimee est ECRITE dans le champ
+(on voit qu'il s'est passe quelque chose, et on peut la corriger) ; l'ouverture (ROI) n'intervient pas ; la case
+"Flicker & backg. removal" devient "Flicker removal".
+
+1) Utils/estimateBackground.m : fichier fourni (matlab/estimateBackground.m), MATLAB de base. Mediane d'un cadre de 5 %
+   le long des 4 bords : insensible aux pixels chauds/morts (10 % de pixels chauds : +0.7 comptage ; un quadrant
+   endommage par un impact laser : +2.4 comptages, contre +400 et +150 pour la moyenne). La mediane des 4 COTES
+   n'est pas utilisee : avec un quadrant endommage deux cotes sont contamines a moitie (+120 comptages).
+
+2) Legende et info-bulle de la case (dans CameraBeamAnalyzer, ou hDeflickerCheck est cree) :
+        'String','Flicker removal'   (et le texte hDeflickerCheck_text correspondant)
+        'TooltipString','Removes the horizontal frame noise: a constant offset per line, estimated on the left & right edges, is subtracted from each line.'
+
+3) Le bouton (meme parent que hui_bkg ; positions de la figure d'origine : bkg = [85 540 35 20], filtre en x=175) :
+        hui_bkgauto=uicontrol('Style','pushbutton','String','Auto','Position',[145 540 28 20], ...
+            'Callback',@AutoBkgButton_Callback, ...
+            'TooltipString',sprintf(['Estimates the background: median of a frame 5 %% wide along the 4 edges of the image\n' ...
+            '(what remains after flicker removal), and writes it in the field.\n' ...
+            'Not reliable if the beam reaches the edges: then enter the value by hand.']));
+   (le bouton tient entre l'etiquette "(A)" et le champ "Filter param." : 2 pixels de marge de chaque cote.)
+
+4) Le callback (a cote de bkg_Callback) :
+    function AutoBkgButton_Callback(~,~)
+        imageNum=get(hImageNumMenu,'Value');
+        if isempty(IMAGES{imageNum}.raw)
+            updatemsgtxt('/!\No image.'); return;
+        end
+        data=IMAGES{imageNum}.raw-IMAGES{imageNum}.flicker; % ce qui reste a soustraire
+        data(IMAGES{imageNum}.deadmask==0)=NaN;
+        try
+            [bkg,nonUniform,high,pctPeak]=estimateBackground(data);
+        catch err
+            updatemsgtxt(['/!\' err.message]); return;
+        end
+        txt=sprintf('%.6g',bkg);
+        IMAGES{imageNum}.bkg=str2double(txt); % la valeur appliquee est la valeur affichee
+        set(hui_bkg,'String',txt);
+        update_image(imageNum);
+        plot_image(imageNum,true);
+        if FILTERS.deflicker(imageNum); suffix=' after flicker removal.'; else suffix='.'; end
+        updatemsgtxt(['Bkg = ' txt ': median of the image border' suffix]);
+        if high && ~nonUniform
+            updatemsgtxt(sprintf('/!\\Background is %.0f %% of the peak: beam wings on the image border? Check the value.',pctPeak));
+        end
+        if nonUniform
+            updatemsgtxt('/!\Background not uniform along the image border (beam reaching the border, damaged area, gradient?): check the value.');
+        end
+    end
+
+Remarque : l'estimation porte sur "raw - flicker" ; avec le deflicker actif la valeur trouvee est donc proche de 0 (le
+message l'indique). Le message d'AutoAperture "without bkg substract. likely to fail" reste valable tel quel.

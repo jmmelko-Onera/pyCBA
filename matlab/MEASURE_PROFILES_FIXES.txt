@@ -1,0 +1,67 @@
+NOTE 22/10/2026 : Size45Button_Callback est remplace par SizeAngleButton_Callback (voir PRINCIPAL_AXES.txt) ;
+les points 3) et la remarque sur Size45 ci-dessous ne concernent plus que l'ancien code.
+
+Energy / area / power / size / profile callbacks (MATLAB).  Python: pycba/core/measure.py, profile_files.py, profiles.py.
+
+0) createMask(hROI,hImage) in ALL these callbacks: see ROI_CROSSHAIR_FIXES.txt item 8 (use roiMaskFromROI(hROI,size(IMAGES{imageNum}.filt),FILTERS.pixelsize)).
+   (The "no image" guard is not needed when no image is loaded at all: the buttons are then disabled. It is only needed if
+   the user can select an empty image B or C in the image menu while A is loaded -- to be checked in ImageNum_Callback.)
+
+1) SizeXYButton_Callback, fallback centre -- X and Y use the wrong dimensions (swapped width/height):
+        Xcentroid = pos(1) + pos(4)/2;   Ycentroid = pos(2) + pos(3)/2;        % WRONG
+   ->   Xcentroid = pos(1) + pos(3)/2;   Ycentroid = pos(2) + pos(4)/2;        % x + width/2, y + height/2
+   (for a polygon, pos is N x 2: use mean([min(pos(:,1)) max(pos(:,1))]) and mean([min(pos(:,2)) max(pos(:,2))]).)
+   Same line: croppedimg(round(Ycentroid/pixelsize),round(Xcentroid/pixelsize)) fails ("Index exceeds") when the centroid is NaN
+   (null energy in the aperture) or outside the image. Replace the test by:
+        r = round(Ycentroid/pixelsize); c = round(Xcentroid/pixelsize);
+        if ~isfinite(r) || ~isfinite(c) || r<1 || c<1 || r>size(croppedimg,1) || c>size(croppedimg,2) || croppedimg(r,c)==0
+            (fallback centre)
+        end
+   Also: createDefaultROI('',rfilt) here does not set the ROI menu (hui_ROImenu, Value 4) like AutoAperture does.
+
+2) SizeXYButton_Callback, 'Peak Flux' = ComputeBeamPeak(rfilt,'smart') used the WHOLE image while all the other values use the
+   aperture. DECIDED: take it in the aperture (Python does):   ComputeBeamPeak(croppedimg,'smart')
+
+3) Size45Button_Callback, case 2 (1/e2):   [X0, Y0] = ComputePeakCenter(img);   -> 'img' does not exist: error.
+   ->   [X0, Y0] = ComputePeakCenter(croppedimg);
+   Remarks (no change): imrotate(croppedimg,45) uses nearest neighbour interpolation (as Python does); the orientation of
+   DiamX45 (along the (1,1) diagonal of the axes) matches the ellipse that is drawn, checked on a synthetic beam.
+
+4) ProfileButton / Profile45Button / ProfileL1L2Button:
+   a) figure titles have X and Y crossed:  sprintf('Cuts at X=%.4g (Hline %d) and Y=%.4g (Vcol %d)',Ypos,linenum,Xpos,colnum)
+      -> sprintf('Cuts at Y=%.4g (Hline %d) and X=%.4g (Vcol %d)',Ypos,linenum,Xpos,colnum)    (same in the 45 and L1L2 titles)
+   b) saved file names: the horizontal profile (row linenum) is named with colnum, and the vertical one (column colnum) with
+      linenum. Harmonised convention (Hpx = column, Vpx = row):
+          Hprofile_at_Vpx<linenum>.txt   Vprofile_at_Hpx<colnum>.txt
+          minusProfile_at_Hpx<colnum>_Vpx<linenum>.txt   (same for plus, L1, L2; L1/L2 files get _A<angle>)
+      !! user-visible change: scripts that read the old names must be updated.
+   c) lastidx=strfind(filepath,'\'); if empty, lastidx=length(filepath): the whole file name is then glued to the new name
+      (and filepath=''  -> error). Use:   folder = fileparts(strrep(filepath,'\','/'));  and  fullfile(folder,'Hprofile_at_...txt');
+      skip saving if filepath is empty.
+   d) save(...,'-ascii') errors if the folder is read-only (network share...): wrap in try/catch and say it in updatemsgtxt.
+   e) no test that linenum/colnum are inside the image: with the crosshair on the very edge round(...) can give dim+1 -> index error.
+      Add:  if linenum<1||colnum<1||linenum>size(rfilt,1)||colnum>size(rfilt,2); updatemsgtxt('Crosshair outside image.'); return; end
+   f) Profile45: (1:size(minusProfile))*pixelsize*sqrt(2) works only because 1:[n 1] uses the first element: write
+      (1:numel(minusProfile))  (same for plusProfile).
+   g) ProfileL1L2: the callback itself has no real error beyond a)-e); the "buggy" behaviour comes from the coupled constraint
+      functions (ROI_CROSSHAIR_FIXES.txt item 5) and from the imrotate-based lineProfile (already replaced in Python by direct
+      sampling along the lines). Positions are taken from CROSS.handlerHPL1 / VML2: with the crosshair type '+' or 'X' the button is
+      wired to the other callback, fine.
+
+5) PowerButton_Callback: area=0 (aperture without any pixel) -> 0/0 = NaN printed as 'Ave. power=NaN' without explanation: test it
+   and say 'Empty aperture.'.  DECIDED (no change): NaN pixels count in the area (they exist spatially) and not in the energy
+   (energy = what the camera really digitised); the power is under-estimated if there are many NaN, the user must have a working camera.
+
+
+--- Ajustement gaussien avec ouverture serree (21/10/2026) -------------------------------------
+Probleme : quand l'ouverture ne laisse que le coeur du faisceau (moins de +-2.5 sigma), l'offset d et la largeur c du
+modele a1*exp(-((x-b1)/c1)^2)+d1 sont degeneres : l'ajustement est tres bruite (simulation, bruit 1% : dispersion de
+c de +-12% a 1 sigma, +-2.8% a 1.5 sigma, +-1.2% a 2 sigma ; avec 2% de bruit, parfois des centaines de %).
+Correctif (matlab/gaussianfit_fixed.m, pyCBA : core/profiles.py::_fit_gauss1) : ajustement en deux temps. Si les points
+conserves couvrent moins de +-2.5 sigma (sigma = c0/sqrt(2), c0 = point de depart FWHM), on ajoute un a priori doux
+d ~ 0 (fond deja soustrait) pesant 3 points : un point virtuel loin du faisceau (x = b0+10*c0, y = 0, poids 3) ou le
+modele vaut exactement d. Ouverture large : meme resultat qu'avant, a l'identique.
+Contrepartie (inevitable : l'offset n'est pas mesurable dans une fenetre aussi etroite) : si un fond reel subsiste
+(5% du pic), la largeur est surestimee de +3 a +4% pour des fenetres de +-1.5 a 2 sigma. Soustrayez le fond (Bkg).
+Essai ecarte : forcer d vers la valeur des bords (ou donner plus de poids aux points extremes) : les bords d'une
+ouverture etroite sont encore sur les ailes du faisceau, la largeur est sous-estimee de 30% (+-1.5 sigma) et 14% (+-2 sigma).

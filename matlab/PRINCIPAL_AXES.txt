@@ -1,0 +1,89 @@
+BOUTON "ISO Beam size angle" : DIAMETRES SUR LES AXES PRINCIPAUX (ISO 11146-1) - 22/10/2026
+
+Decision : "ISO Beam size" reste inchange (tailles H et V : utiles dans le plan horizontal/vertical du laboratoire).
+Le bouton "ISO Beam size 45" (Size45Button_Callback, qui tournait l'image de 45 degres faute de pouvoir calculer dans
+un angle quelconque) est REMPLACE par "ISO Beam size angle" : grand et petit diametre ISO, angle du grand axe et
+ellipticite. Les tailles a 45 degres ne servent plus : Size45Button_Callback et son usage de imrotate disparaissent.
+
+Principe : ComputeD4sigma ne donne que les largeurs sur X et sur Y (moments d'ordre 2 marginaux). Le terme croise <xy>
+donne la matrice de covariance complete [sxx sxy; sxy syy] ; ses valeurs propres l1>=l2 donnent Dmajor=4*sqrt(l1),
+Dminor=4*sqrt(l2), et l'angle du grand axe phi=0.5*atan2(2*sxy,sxx-syy). Ellipticite = Dminor/Dmajor.
+
+1) Utils/computePrincipalAxes.m : fichier fourni (matlab/computePrincipalAxes.m), MATLAB de base.
+   Convention de l'angle : positif dans le sens ANTI-HORAIRE tel que l'on voit l'image a l'ecran (axe y vers le bas),
+   dans (-90,90]. Faisceau allonge du bas-gauche vers le haut-droit = angle positif. Arbitraire (0) pour un faisceau rond.
+
+2) SizeXYButton_Callback : INCHANGE.
+
+3) Le bouton (remplace hSize45Button, meme position) : 'String','ISO Beam size angle', 'Callback',@SizeAngleButton_Callback,
+   'TooltipString','Computes the ISO 11146 beam diameters along the PRINCIPAL axes (4 sigma, second moments): major and minor diameters, angle of the major axis (counter-clockwise as seen on screen) and ellipticity.'
+   Renommer le handle (hSize45Button -> hSizeAngleButton) partout (grep 'hSize45Button' : creation, liste des boutons
+   a desactiver/activer, etc.).
+
+4) Remplacer Size45Button_Callback par (meme debut que SizeXYButton_Callback, avec les corrections deja faites :
+   centre de repli pos(1)+pos(3)/2, pos(2)+pos(4)/2, masque, centroide) :
+
+    function SizeAngleButton_Callback(~,~)
+        imageNum=get(hImageNumMenu,'Value');
+        pixelsize=FILTERS.pixelsize;
+        rfilt=IMAGES{imageNum}.filt;
+        if isempty(ROI.type)
+            createDefaultROI('',rfilt);
+            updatemsgtxt('/!\ No aperture defined!');
+        end
+        % Erases old centroid and ellipse
+        if ishandle(hCentroid) delete(hCentroid); end
+        if ishandle(hDiameter) delete(hDiameter); end
+
+        mask = createMask(hROI,hImage);
+        croppedimg=rfilt.*mask;
+        [Xcentroid, Ycentroid] = ComputeCentroid(croppedimg);
+        pos = getPosition(hROI);
+        r = round(Ycentroid/pixelsize); c = round(Xcentroid/pixelsize);
+        if ~isfinite(r) || ~isfinite(c) || r<1 || c<1 || r>size(croppedimg,1) || c>size(croppedimg,2) || croppedimg(r,c) == 0
+            Xcentroid = pos(1) + pos(3)/2;   % (version corrigee : largeur = pos(3), hauteur = pos(4))
+            Ycentroid = pos(2) + pos(4)/2;
+        end
+        if get(hDiamMenu,'Value') ~= 1
+            updatemsgtxt('/!\Principal axes always use the 4sigma method, whatever the diameter menu says.');
+        end
+        [Dmajor,Dminor,angleDeg,ellipticity] = computePrincipalAxes(croppedimg, Xcentroid, Ycentroid, pixelsize);
+        updatemsgtxt(sprintf('X0=%.4g',Xcentroid));
+        updatemsgtxt(sprintf('Y0=%.4g',Ycentroid));
+        updatemsgtxt(sprintf('Major=%.4g',Dmajor));
+        updatemsgtxt(sprintf('Minor=%.4g',Dminor));
+        updatemsgtxt(sprintf('Angle=%.1f deg',angleDeg));
+        updatemsgtxt(sprintf('Ellipticity=%.3f',ellipticity));
+
+        % Draw centroid and the tilted ellipse of the principal axes
+        hold on;
+        hCentroid=plot(Xcentroid,Ycentroid,'+','MarkerEdgeColor','m','LineWidth',2,'MarkerSize',8);
+        theta = 0 : 0.01 : 2*pi;
+        if isfinite(angleDeg)
+            phiXY = -angleDeg*pi/180;                 % rotation dans les coordonnees de l'image (y vers le bas)
+            u = 0.5*Dmajor*cos(theta); v = 0.5*Dminor*sin(theta);
+            hDiameter=plot(Xcentroid + u*cos(phiXY) - v*sin(phiXY), Ycentroid + u*sin(phiXY) + v*cos(phiXY), '-m','LineWidth', 2);
+        end
+        hold off;
+    end
+
+   Pas de copie dans le presse-papiers (le bouton "ISO Beam size" garde la sienne : DiamH, DiamV).
+   Si la fonction ComputeBeamSize45 / un code utilisant imrotate(...,45) existe ailleurs, il peut etre supprime.
+
+5) Verifications possibles (verifiees en Python sur des gaussiennes inclinees) :
+   - faisceau gaussien sigma_grand=24, sigma_petit=9 incline de 35 deg : Dmajor=96, Dminor=36, ellipticite=0.375, angle=35 ;
+   - Dmajor^2+Dminor^2 = DiamH^2+DiamV^2 (invariant de la trace) ;
+   - tourner l'image de -angle (imrotate(img,-angle)) aligne le faisceau sur X : DiamH(4 sigma) = Dmajor.
+
+Comme ComputeD4sigma, ces moments sont tres sensibles au fond : soustraire le fond (bouton Auto) avant de mesurer.
+
+
+GREY OUT THE BUTTON FOR THE OTHER DIAMETER METHODS (23/10/2026)
+The principal axes are always 4sigma. In the MATLAB GUI, add to DiamMenu_Callback (and after creating the buttons, with the
+same test) -- hSizeAngleButton being the handle of the 'ISO Beam size angle' button:
+    if get(hDiamMenu,'Value') == 1      % 4sigma
+        set(hSizeAngleButton, 'Enable','on',  'TooltipString', angleTip);
+    else
+        set(hSizeAngleButton, 'Enable','off', 'TooltipString', ['Not available: the principal axes are computed with the 4sigma method.' newline 'Select ''4sigma'' in the diameter menu to use this button.']);
+    end
+(angleTip = the normal tooltip of the button.) Python does exactly this.

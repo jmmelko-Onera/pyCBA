@@ -1,0 +1,166 @@
+CORRECTIFS MATLAB - scripts de conversion (hors MAIN)
+=====================================================
+Les trois scripts sont portes dans pycba/io/converters.py (versions corrigees).
+Points verifies sur les fichiers d'exemple sont marques [verifie]; les autres [lecture du code].
+
+--- MAIN_PhotonPRW_to_ASCII.m ---------------------------------------------------------------
+
+P1. [lecture du code - bloqueur] Lignes 70-71 : "endif strcmp(mode,AutoMode)" n'est pas du MATLAB
+    (c'est un "end" + un "if" fusionnes). Le script plante en mode Automatique. Remplacer par :
+        end
+        if strcmp(mode,AutoMode)
+    (le test "if strcmp(mode,'')" qui suit est alors dans le bon bloc.)
+
+P2. [verifie] Detramage : la boucle "while (i < dimY-1)" oublie la derniere paire de lignes
+    (pour dimY=1024 la ligne 1023 n'est jamais remplacee). Remplacer par :
+        while (i < dimY)
+    (il faut juste que la ligne i+1 existe).
+
+P3. [lecture du code] Ligne 138 : warning(['Fichier ',FileName,...]) -> FileName est un cell array,
+    erreur "Cell contents..." ; utiliser FileName{kk}.
+
+P4. [verifie] La taille de l'image est dans l'en-tete du fichier : les 4 premiers octets sont
+    2 x uint16 (largeur, hauteur) -> 00 05 00 04 = 1280 x 1024. Le "fseek(f,4,-1)" saute donc
+    cet en-tete, mais la devinette de taille (divisor + questdlg) est inutile et peut se tromper.
+    Remplacement possible :
+        hdr = fread(f,2,'uint16');   dimX = hdr(1);  dimY = hdr(2);
+        r1  = fread(f,'uint16');
+
+P5. [choix a confirmer] r2=round(r2*dimZ/max(max(r2))) rescale CHAQUE image sur 0..255 : le gain
+    change d'une image a l'autre (energie / puissance non comparables) et les 872 niveaux du
+    fichier d'exemple sont ramenes a 255. OK pour un affichage, pas pour une mesure. Option :
+    dimZ=[] -> pas de normalisation. (pyCBA : DIM_Z = None.)
+
+P6. Ordre debruitage puis detramage : medfilt2 est applique AVANT le detramage, donc il melange
+    les deux trames. Inverser serait plus logique (non change dans pyCBA, a trancher).
+
+P7. Chemins : [DirName '\' FileName{kk}] ne marche que sous Windows ; utiliser fullfile.
+
+--- MAIN_SpiriconRAW_to_ASCII.m -------------------------------------------------------------
+
+R1. [verifie] 'bit16=>double' est BIEN signe : le fichier d'exemple contient des valeurs negatives
+    (min -235, fond soustrait) et la lecture non signee donne 65535. Garder 'bit16' (ou 'int16').
+    L'orientation (transposition) est correcte : le pic (ligne 89, colonne 92) correspond a
+    PeakLocx=92 / PeakLocy=89 de l'en-tete.
+
+R2. [QUESTION OUVERTE] En-tete : Peak=1825,5 ; Valley=-117,5. Les valeurs brutes sont 3651 et -235,
+    donc en-tete = brut/2, alors que le script divise par pyrocolorzoom=4 (pic 912,75).
+    Le "Color Zoom" est un reglage du logiciel Pyrocam (il n'est pas dans l'en-tete) : s'il vaut 4
+    pour ce fichier, l'en-tete est a un autre facteur ; s'il vaut 2, la valeur 4 est fausse.
+    A verifier avec une mesure de reference.
+
+R3. Chemins : [PathName '\' FileName{kk}] -> fullfile(PathName,FileName{kk}).
+
+R4. Format de sortie : '-single' = 7 chiffres significatifs, sans importance ici (compteurs
+    entiers/4). Le pxscale (myimresize) agrandit les pixels : inutile pour pyCBA, qui doit relire
+    l'image native (124x124) avec la taille de pixel de la camera.
+
+R5. colorbar('YTick',[0:(2^camBPP)/8:(2^camBPP) (2^camBPP)]) : la derniere graduation est
+    dupliquee (avertissement MATLAB) -> retirer le dernier "(2^camBPP)".
+
+--- MAIN_Import_screenshot_as_ASCII.m -------------------------------------------------------
+
+S1. [lecture du code - bloqueur] methode 'threshold' : CROSSHAIRCLEAN.crosshairthreshold n'existe
+    pas (le champ s'appelle 'threshold') -> erreur. Remplacer par CROSSHAIRCLEAN.threshold.
+
+S2. [lecture du code] Meme methode : xsum/ysum sont compares a ymax*seuil et xmax*seuil alors que
+    chaque somme a respectivement xmax et ymax termes. Sans effet sur une image carree (320x320),
+    faux sinon :
+        hlinesy=find(xsum>xmax*CROSSHAIRCLEAN.threshold)';
+        vlinesx=find(ysum>ymax*CROSSHAIRCLEAN.threshold)';
+
+S3. [lecture du code] Resampling (zoom>1) : idximg est un uint8 (rgb2ind) et les differences
+    col2-col1 / row2-row1 SATURENT A 0 (arithmetique entiere MATLAB) avant abs(). Convertir :
+        col1=double(idximg(:,xi)); col2=double(idximg(:,xi+xoff));   (idem pour les lignes)
+    Ne concerne que zoom>1 (pas de resampling avec zoom=1).
+
+S4. [lecture du code] ycoord=zeros(1,xmax) -> zeros(1,ymax) (sans consequence, MATLAB agrandit).
+
+S5. [lecture du code] highRGB : RGBpalette(paldepth,:) -> paldepth n'est pas defini
+    (utiliser size(RGBpalette,1)).
+
+S6. [verifie sur zoom=1] La methode 'std' trouve TOUJOURS une croix : avec enable=1 sur une image
+    sans croix (cas du fichier d'exemple 320x320), 3 colonnes et 3 lignes sont ecrasees. De plus
+    elle est centree sur le plus fort saut de dispersion, c'est-a-dire sur le BORD de la ligne :
+    pour une croix de 1 pixel c'est correct (epaisseur 3 recouvre), pour une croix de 3 pixels une
+    colonne reste. Si la croix reelle est epaisse, regler thickness=5 ou envoyer une capture.
+
+S7. [QUESTION OUVERTE] Normalisation : a=(idx*16383-127)/127 donne +129 par niveau de palette mais
+    avec un biais : l'export TIFF (RAW script) calcule idx=round((z+offset)*Zscale) avec
+    offset=0.51*16383/127=65.8, donc l'inverse non biaise est z=idx*129-65.8 (et non idx*129-1) ;
+    l'ecart (+64.8 comptes, soit la moitie d'un niveau) est inferieur a la quantification
+    (129 comptes). A garder si c'est volontaire ("pyrocam specific").
+
+S8. Messages : size(idxcamimg,1) est affiche comme "largeur" : inverser (largeur=size(,2)).
+    Encodage : accents des disp() en ANSI ('export�e').
+
+
+-------------------------------------------------------------------------------------------------
+MISES A JOUR DU 22/10/2026 (decisions prises avec l'utilisateur)
+-------------------------------------------------------------------------------------------------
+R2 (suite). pyrocolorzoom : l'en-tete donne Peak, Valley et FrameTotal ; sur le fichier d'exemple ce sont
+    EXACTEMENT le max, le min et la somme des valeurs brutes divises par 2 (pas par 4). Python lit donc le
+    zoom dans l'en-tete (color_zoom="auto") et retombe sur 4 (avec un avertissement) si l'en-tete ne permet pas
+    de conclure. Equivalent MATLAB, dans MAIN_SpiriconRAW_to_ASCII.m : remplacer le bloc
+        fp=fopen(imagepath); fseek(fp,headerskip,0); img=fread(fp,[camW camH],precision); fclose(fp);
+        img=(img.')/pyrocolorzoom;
+    par :
+        fp=fopen(imagepath);
+        header=fread(fp,headerskip,'uint8=>char')'; % remplace fseek(fp,headerskip,0)
+        img=fread(fp,[camW camH],precision);
+        fclose(fp);
+        zoomk=pyrocolorzoom; % valeur par defaut si l'en-tete ne permet pas de conclure
+        pk=regexp(header,'(?m)^Peak=([-\d,\.]+)','tokens','once');
+        vl=regexp(header,'(?m)^Valley=([-\d,\.]+)','tokens','once');
+        if ~isempty(pk) && ~isempty(vl)
+            pk=str2double(strrep(pk{1},',','.')); vl=str2double(strrep(vl{1},',','.'));
+            z1=max(img(:))/pk; z2=min(img(:))/vl;
+            if pk~=0 && vl~=0 && abs(z1-z2)<0.01*z1 && abs(z1-round(z1))<0.01*z1 && round(z1)>=1
+                zoomk=round(z1);
+            end
+        end
+        img=(img.')/zoomk;
+    (Python verifie aussi FrameTotal ; il faut au moins deux rapports qui concordent a 1 %.)
+    TIFFcolorzoom est un choix purement cosmetique de l'utilisateur : sans rapport avec ce diviseur.
+
+P5 (decide). Normalisation 0..255 du PRW : non appliquee par defaut (dimZ=[] -> valeurs brutes dans le fichier
+    texte). L'echelle Z de CameraBeamAnalyzer/pyCBA adapte les couleurs a l'affichage, et le champ Bkg reste
+    valable d'une image a l'autre. Python : DIM_Z=None par defaut dans examples/convert_files.py.
+    MATLAB : dimZ=[]; puis   if ~isempty(dimZ); r2=round(r2*dimZ/max(max(r2))); end
+
+S6 (decide). Reticule : nouvelle methode 'auto' (defaut en Python). Le logiciel camera dessine son reticule
+    dans une couleur absente de la palette : une ligne (colonne) est un reticule si au moins 60 % de ses
+    pixels sont hors palette (correspondance exacte). Les pixels hors palette isoles (saturation...) et les
+    reticules obliques ne sont pas touches. Si plus de la moitie de l'image est hors palette (capture
+    redimensionnee/interpolee) ou si plus de 10 % des lignes seraient retenues, rien n'est supprime et un
+    message l'indique ; 'std' et 'threshold' restent disponibles.
+    Reticule POINTILLE noir/blanc (23/10/2026) : voir le commentaire "dash" ci-dessous (Python : _auto_crosshair).
+    Equivalent MATLAB, dans MAIN_Import_screenshot_as_ASCII.m. Les noms sont ceux du script : l'image est
+    "img" (0..1, apres ind2rgb ou /255), la palette "mycolormap" (0..1).
+    1) Parametres (lignes 9-10) :
+        CROSSHAIRCLEAN = struct('enable',1,'thickness',3,'threshold',1.2,'image_borders',8/100,'line_fraction',0.6);
+        CROSSHAIRCLEAN.method = 'auto'; % 'auto', 'std' ou 'threshold'
+    2) Ligne 77, ajouter une branche AVANT le 'threshold' (le reste de la chaine if/else est inchange) :
+        if strcmp(CROSSHAIRCLEAN.method,'auto')
+            % Reticule = lignes/colonnes presque entierement faites de couleurs absentes de la palette
+            palcode = sum(round(mycolormap*255).*[65536 256 1],2);
+            imgcode = round(img(:,:,1)*255)*65536 + round(img(:,:,2)*255)*256 + round(img(:,:,3)*255);
+            off = ~ismember(imgcode, palcode); % ymax x xmax, true = hors palette
+            % 23/10/2026 reticule POINTILLE noir/blanc : le blanc pur est la derniere couleur de la palette Spiricon
+            % (le noir n'y est pas), donc seule la moitie de la ligne etait hors palette. Le noir et le blanc purs comptent
+            % donc aussi, a condition qu'au moins 0.4*line_fraction de la ligne soit VRAIMENT hors palette (un faisceau
+            % sature, tout blanc, n'est pas un reticule). Un reticule blanc plein reste introuvable.
+            dash = off | (imgcode==16777215) | (imgcode==0);
+            minoff = 0.4*CROSSHAIRCLEAN.line_fraction;
+            hlinesy = find(mean(dash,2) >= CROSSHAIRCLEAN.line_fraction & mean(off,2) >= minoff)';
+            vlinesx = find(mean(dash,1) >= CROSSHAIRCLEAN.line_fraction & mean(off,1) >= minoff);
+            if mean(off(:))>0.5 || numel(hlinesy)>0.1*ymax || numel(vlinesx)>0.1*xmax
+                hlinesy = []; vlinesx = [];
+                warning('Most colours are outside the palette (resized screenshot?): automatic crosshair detection impossible, image unchanged.');
+            elseif isempty(hlinesy) && isempty(vlinesx)
+                disp('No crosshair detected (no line of colours outside the palette): image unchanged.');
+            else
+                fprintf('Found crosshair at X=%s, Y=%s\n',join(string(vlinesx),';'),join(string(hlinesy),';'));
+            end
+        elseif strcmp(CROSSHAIRCLEAN.method,'threshold')
+    (la boucle de suppression qui suit - for y=hlinesy / for x=fliplr(vlinesx) - est inchangee et accepte les listes vides.)
